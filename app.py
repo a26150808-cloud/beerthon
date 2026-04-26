@@ -3,6 +3,29 @@ import yfinance as yf
 import pandas as pd
 import twstock
 import hashlib
+import requests
+
+def send_line_message(message):
+    token = st.secrets["LINE_CHANNEL_ACCESS_TOKEN"]
+
+    url = "https://api.line.me/v2/bot/message/broadcast"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "messages": [
+            {
+                "type": "text",
+                "text": message
+            }
+        ]
+    }
+
+    r = requests.post(url, headers=headers, json=data)
+    return r.status_code
 import json
 import os
 import uuid
@@ -20,6 +43,7 @@ DEFAULT_LOGIN_PASSWORD = "123456"
 DEFAULT_ADMIN_PASSWORD = "admin888888"
 
 SETTINGS_FILE = "app_settings.json"
+LINE_LOG_FILE = "line_log.json"   # ← 加這行
 
 
 def hash_text(text):
@@ -32,6 +56,41 @@ def save_settings(settings):
 
 
 def load_settings():
+    if not os.path.exists(SETTINGS_FILE):
+        settings = {
+            "password_hash": hash_text(DEFAULT_LOGIN_PASSWORD),
+            "admin_password_hash": hash_text(DEFAULT_ADMIN_PASSWORD)
+        }
+        save_settings(settings)
+        return settings
+
+    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+        settings = json.load(f)
+
+    if "admin_password_hash" not in settings:
+        settings["admin_password_hash"] = hash_text(DEFAULT_ADMIN_PASSWORD)
+        save_settings(settings)
+
+    return settings
+
+
+def load_line_log():
+    if not os.path.exists(LINE_LOG_FILE):
+        return {}
+
+    with open(LINE_LOG_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_line_log(data):
+    with open(LINE_LOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def save_line_log(data):
+    with open(LINE_LOG_FILE, "w") as f:
+        json.dump(data, f)
+
     if not os.path.exists(SETTINGS_FILE):
         settings = {
             "password_hash": hash_text(DEFAULT_LOGIN_PASSWORD),
@@ -762,8 +821,55 @@ with st.sidebar:
 
 st.subheader("🔥 今日 Top 10 推薦")
 
+if st.button("📱 測試LINE通知"):
+    status = send_line_message("🔥 LINE測試成功，你的選股系統已連動")
+
+    if status == 200:
+        st.success("LINE發送成功")
+    else:
+        st.error(f"發送失敗：{status}")
+
 with st.spinner("正在讀取今日分析結果，第一次會比較久，之後會使用快取加速。"):
+
     df, liquidity_count, selected_count = run_scan(scan_limit, strategy_mode)
+
+    # ===== LINE一天只發一次 =====
+    today = datetime.now().strftime("%Y-%m-%d")
+
+
+    log = load_line_log()
+
+    if log.get("last_sent_date") != today:
+
+        if not df.empty:
+            top = df[df["等級"] == "A級"].sort_values("總分", ascending=False).head(5)
+
+            if not top.empty:
+                msg = "🔥 今日A級股票\n\n"
+
+                for _, row in top.iterrows():
+                    msg += f"{row['股票代號']} {row['股票名稱']}\n"
+                    msg += f"等級：{row['等級']}｜總分：{row['總分']}\n"
+                    msg += f"建議：{row['操作建議']}\n"
+                    msg += f"停損：{row['建議停損']}｜停利1：{row['第一停利']}\n\n"
+            else:
+                msg = "⚠️ 今日沒有A級股票，建議觀望，不要硬做。"
+
+        else:
+            msg = "⚠️ 今日沒有分析結果，建議稍後再查看。"
+
+        status = send_line_message(msg)
+
+        if status == 200:
+            st.success("LINE今日通知已送出")
+            log["last_sent_date"] = today
+            save_line_log(log)
+        else:
+            st.error(f"LINE通知失敗：{status}")
+
+    else:
+        st.info("今日LINE通知已發送過，不會重複發送。")
+
 
 if df.empty:
     st.info("目前沒有符合資料。可切換策略、調整掃描數量，或手動刷新。")
