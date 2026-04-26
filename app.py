@@ -17,25 +17,13 @@ st.set_page_config(page_title="台股選股系統", layout="wide")
 # =========================
 
 DEFAULT_LOGIN_PASSWORD = "123456"
-ADMIN_TRANSFER_KEY = "Yao!Trade_2026#SafeKey88"
+DEFAULT_ADMIN_PASSWORD = "admin888888"
 
 SETTINGS_FILE = "app_settings.json"
-OWNER_FILE = "owner_device.key"
 
 
 def hash_text(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def get_device_key():
-    if not os.path.exists(OWNER_FILE):
-        key = str(uuid.uuid4())
-        with open(OWNER_FILE, "w", encoding="utf-8") as f:
-            f.write(key)
-        return key
-
-    with open(OWNER_FILE, "r", encoding="utf-8") as f:
-        return f.read().strip()
 
 
 def save_settings(settings):
@@ -47,17 +35,22 @@ def load_settings():
     if not os.path.exists(SETTINGS_FILE):
         settings = {
             "password_hash": hash_text(DEFAULT_LOGIN_PASSWORD),
-            "owner_device_key": get_device_key()
+            "admin_password_hash": hash_text(DEFAULT_ADMIN_PASSWORD)
         }
         save_settings(settings)
         return settings
 
     with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        settings = json.load(f)
+
+    if "admin_password_hash" not in settings:
+        settings["admin_password_hash"] = hash_text(DEFAULT_ADMIN_PASSWORD)
+        save_settings(settings)
+
+    return settings
 
 
 settings = load_settings()
-current_device_key = get_device_key()
 
 
 def require_login():
@@ -68,9 +61,9 @@ def require_login():
         return
 
     st.title("🔐 台股選股系統登入")
-    st.info("第一次登入密碼預設為：123456。登入後請到左側管理區修改密碼。")
+    st.info("請輸入登入密碼。")
 
-    password = st.text_input("請輸入登入密碼", type="password")
+    password = st.text_input("登入密碼", type="password")
 
     if st.button("登入"):
         if hash_text(password) == settings["password_hash"]:
@@ -699,41 +692,67 @@ with st.sidebar:
     st.divider()
 
     st.header("密碼管理")
-    is_owner_device = current_device_key == settings.get("owner_device_key")
 
-    if is_owner_device:
-        st.success("目前這台電腦有管理權限")
+    if "admin_ok" not in st.session_state:
+        st.session_state.admin_ok = False
 
-        old_password = st.text_input("目前登入密碼", type="password")
-        new_password = st.text_input("新登入密碼", type="password")
-        confirm_password = st.text_input("再次輸入新密碼", type="password")
+    if not st.session_state.admin_ok:
+        admin_password = st.text_input("管理員密碼", type="password")
+
+        if st.button("進入管理模式"):
+            if hash_text(admin_password) == settings["admin_password_hash"]:
+                st.session_state.admin_ok = True
+                st.rerun()
+            else:
+                st.error("管理員密碼錯誤")
+
+    else:
+        st.success("目前為管理員模式")
+
+        st.subheader("修改使用者登入密碼")
+
+        new_login_password = st.text_input("新的登入密碼", type="password")
+        confirm_login_password = st.text_input("再次輸入新的登入密碼", type="password")
 
         if st.button("修改登入密碼"):
-            if hash_text(old_password) != settings["password_hash"]:
-                st.error("目前登入密碼錯誤")
-            elif new_password != confirm_password:
-                st.error("兩次新密碼不一致")
-            elif len(new_password) < 6:
-                st.error("新密碼至少 6 碼")
+            if new_login_password != confirm_login_password:
+                st.error("兩次登入密碼不一致")
+            elif len(new_login_password) < 6:
+                st.error("登入密碼至少 6 碼")
             else:
-                settings["password_hash"] = hash_text(new_password)
+                settings["password_hash"] = hash_text(new_login_password)
                 save_settings(settings)
-                st.success("登入密碼已修改")
-    else:
-        st.warning("這台電腦目前沒有管理權限")
+                st.success("登入密碼已修改，其他人下次需使用新密碼登入")
 
-        transfer_key = st.text_input("輸入管理者轉移金鑰", type="password")
+        st.divider()
 
-        if st.button("把管理權限轉移到這台電腦"):
-            if transfer_key == ADMIN_TRANSFER_KEY:
-                settings["owner_device_key"] = current_device_key
-                save_settings(settings)
-                st.success("管理權限已轉移到這台電腦，請重新整理")
+        st.subheader("修改管理員密碼")
+
+        old_admin_password = st.text_input("目前管理員密碼", type="password")
+        new_admin_password = st.text_input("新的管理員密碼", type="password")
+        confirm_admin_password = st.text_input("再次輸入新的管理員密碼", type="password")
+
+        if st.button("修改管理員密碼"):
+            if hash_text(old_admin_password) != settings["admin_password_hash"]:
+                st.error("目前管理員密碼錯誤")
+            elif new_admin_password != confirm_admin_password:
+                st.error("兩次管理員密碼不一致")
+            elif len(new_admin_password) < 8:
+                st.error("管理員密碼至少 8 碼")
             else:
-                st.error("轉移金鑰錯誤")
+                settings["admin_password_hash"] = hash_text(new_admin_password)
+                save_settings(settings)
+                st.success("管理員密碼已修改")
+
+        if st.button("退出管理模式"):
+            st.session_state.admin_ok = False
+            st.rerun()
+
+    st.divider()
 
     if st.button("登出"):
         st.session_state.logged_in = False
+        st.session_state.admin_ok = False
         st.rerun()
 
 
