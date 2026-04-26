@@ -805,11 +805,25 @@ if st.button("分析單一股票"):
         if symbol_tw in stock_pool:
             symbol = symbol_tw
             info = stock_pool[symbol_tw]
+
         elif symbol_two in stock_pool:
             symbol = symbol_two
             info = stock_pool[symbol_two]
+
         else:
-            st.error("找不到這檔股票，請確認代號是否正確")
+            # 嘗試非上市上櫃（例如興櫃）
+            symbol = symbol_tw
+            info = {
+                "code": code,
+                "name": "非上市上櫃（測試查詢）",
+                "market": "未知"
+            }
+
+        # 嘗試下載資料（確認是否真的有資料）
+        df_test = download_price_data(symbol)
+
+        if df_test is None:
+            st.warning("⚠️ 此股票可能為非上市上櫃或資料不足（yfinance 無資料），無法分析")
             st.stop()
 
         with st.spinner(f"正在分析 {code} {info['name']}..."):
