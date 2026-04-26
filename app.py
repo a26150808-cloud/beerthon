@@ -43,7 +43,8 @@ DEFAULT_LOGIN_PASSWORD = "123456"
 DEFAULT_ADMIN_PASSWORD = "admin888888"
 
 SETTINGS_FILE = "app_settings.json"
-LINE_LOG_FILE = "line_log.json"   # ← 加這行
+LINE_LOG_FILE = "line_log.json"
+ANALYSIS_LOG_FILE = "analysis_log.json"
 
 
 def hash_text(text):
@@ -86,31 +87,19 @@ def save_line_log(data):
     with open(LINE_LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def load_analysis_log():
+    if not os.path.exists(ANALYSIS_LOG_FILE):
+        return {}
 
-def save_line_log(data):
-    with open(LINE_LOG_FILE, "w") as f:
-        json.dump(data, f)
+    with open(ANALYSIS_LOG_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-    if not os.path.exists(SETTINGS_FILE):
-        settings = {
-            "password_hash": hash_text(DEFAULT_LOGIN_PASSWORD),
-            "admin_password_hash": hash_text(DEFAULT_ADMIN_PASSWORD)
-        }
-        save_settings(settings)
-        return settings
 
-    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-        settings = json.load(f)
-
-    if "admin_password_hash" not in settings:
-        settings["admin_password_hash"] = hash_text(DEFAULT_ADMIN_PASSWORD)
-        save_settings(settings)
-
-    return settings
-
+def save_analysis_log(data):
+    with open(ANALYSIS_LOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 settings = load_settings()
-
 
 def require_login():
     if "logged_in" not in st.session_state:
@@ -821,6 +810,10 @@ with st.sidebar:
 
 st.subheader("🔥 今日 Top 10 推薦")
 
+analysis_log = load_analysis_log()
+last_analysis_time = analysis_log.get("last_analysis_time", "尚未分析")
+st.caption(f"📅 上次分析完成時間：{last_analysis_time}")
+
 if st.button("📱 測試LINE通知"):
     status = send_line_message("🔥 LINE測試成功，你的選股系統已連動")
 
@@ -832,6 +825,11 @@ if st.button("📱 測試LINE通知"):
 with st.spinner("正在讀取今日分析結果，第一次會比較久，之後會使用快取加速。"):
 
     df, liquidity_count, selected_count = run_scan(scan_limit, strategy_mode)
+
+    analysis_log = load_analysis_log()
+    analysis_time = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    analysis_log["last_analysis_time"] = analysis_time
+    save_analysis_log(analysis_log)
 
     # ===== LINE一天只發一次 =====
     today = datetime.now().strftime("%Y-%m-%d")
@@ -845,18 +843,23 @@ with st.spinner("正在讀取今日分析結果，第一次會比較久，之後
             top = df[df["等級"] == "A級"].sort_values("總分", ascending=False).head(5)
 
             if not top.empty:
-                msg = "🔥 今日A級股票\n\n"
+                line_date = datetime.now().strftime("%Y/%m/%d %H:%M")
+
+                msg = f"🔥 今日A級股票\n📅 分析時間：{line_date}\n\n"
 
                 for _, row in top.iterrows():
                     msg += f"{row['股票代號']} {row['股票名稱']}\n"
                     msg += f"等級：{row['等級']}｜總分：{row['總分']}\n"
                     msg += f"建議：{row['操作建議']}\n"
                     msg += f"停損：{row['建議停損']}｜停利1：{row['第一停利']}\n\n"
+
             else:
-                msg = "⚠️ 今日沒有A級股票，建議觀望，不要硬做。"
+                line_date = datetime.now().strftime("%Y/%m/%d %H:%M")
+                msg = f"⚠️ 今日沒有A級股票\n📅 分析時間：{line_date}\n\n建議觀望，不要硬做。"
 
         else:
-            msg = "⚠️ 今日沒有分析結果，建議稍後再查看。"
+            line_date = datetime.now().strftime("%Y/%m/%d %H:%M")
+            msg = f"⚠️ 今日沒有分析結果\n📅 分析時間：{line_date}\n\n建議稍後再查看。"
 
         status = send_line_message(msg)
 
