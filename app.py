@@ -580,6 +580,10 @@ def get_risk(row):
 
 def enrich_result(df):
     df["總分"] = df.apply(calc_total_score, axis=1)
+
+    # 🔥 非上市上櫃降權（你要加在這）
+    df.loc[df["市場"] == "未知", "總分"] *= 0.7
+
     df["等級"] = df["總分"].apply(get_level)
     df["操作建議"] = df.apply(get_action, axis=1)
     df["建議倉位"] = df.apply(get_position, axis=1)
